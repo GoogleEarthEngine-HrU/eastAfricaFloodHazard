@@ -1,7 +1,7 @@
-// 1. Initialize Leaflet Map Centered on Eastern Ethiopia Region
-const map = L.map('map').setView([9.593, 41.866], 8);
+// 1. Initialize Leaflet Map Centered on Eastern Ethiopia Region (Zoom set to 10 for a 10 km scale view)
+const map = L.map('map').setView([9.593, 41.866], 10);
 
-// Add Scale Bar Control (Metric scale on bottom left)
+// Add Scale Bar Control (Metric scale on bottom left, set to show 10 km scale at zoom level 10)
 L.control.scale({
   position: 'bottomleft',
   metric: true,
