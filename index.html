@@ -21,10 +21,41 @@
     .nav-btn { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; padding: 5px 12px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
 
     /* Main Dashboard Area */
-    #dashboard { display: flex; flex: 1; height: calc(100vh - 50px); }
-    #map { flex: 1; height: 100%; z-index: 1; }
+    #dashboard { display: flex; flex: 1; height: calc(100vh - 50px); position: relative; }
+    #map-wrapper { flex: 1; height: 100%; position: relative; }
+    #map { width: 100%; height: 100%; z-index: 1; }
     #sidebar { width: 420px; height: 100%; background: #ffffff; overflow-y: auto; display: flex; flex-direction: column; box-shadow: -4px 0 15px rgba(0,0,0,0.1); z-index: 2; }
     
+    /* Map Custom Footer Badges */
+    .map-footer-left {
+      position: absolute;
+      bottom: 25px;
+      left: 10px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #1e293b;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      border: 1px solid #cbd5e1;
+    }
+    .map-footer-right {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      z-index: 1000;
+      background: rgba(255, 255, 255, 0.9);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #1e293b;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+      border: 1px solid #cbd5e1;
+    }
+
     /* Sidebar Navigation Tabs */
     .tab-header { display: flex; border-bottom: 2px solid #e2e8f0; background: #fff; position: sticky; top: 0; z-index: 10; }
     .tab-btn { flex: 1; padding: 12px 6px; border: none; background: none; font-size: 0.8rem; font-weight: 700; color: #64748b; cursor: pointer; border-bottom: 3px solid transparent; text-align: center; }
@@ -81,8 +112,8 @@
   <!-- Top Navigation Bar -->
   <div id="navbar">
     <div class="brand-group">
-      <span class="logo-badge" style="color:#00aeef;">ESA</span>
-      <span class="logo-badge" style="color:#10b981;">FUTURE EARTH</span>
+      <span class="logo-badge" style="color:#00aeef;">NORAD</span>
+      <span class="logo-badge" style="color:#10b981;">NTNU</span>
       <span class="logo-badge" style="color:#f59e0b;">HARAMAYA</span>
       <span class="nav-title">Eastern Ethiopia Flood Hazard Explorer</span>
     </div>
@@ -95,7 +126,11 @@
   <!-- Dashboard Container -->
   <div id="dashboard">
     <!-- Map Viewport -->
-    <div id="map"></div>
+    <div id="map-wrapper">
+      <div id="map"></div>
+      <div class="map-footer-left">NORHEID II Programme · Grant 662-2025-03</div>
+      <div class="map-footer-right">Web developer: Mohammed Mussa Abdulahi · Haramaya University</div>
+    </div>
 
     <!-- Sidebar Viewport -->
     <div id="sidebar">
@@ -201,7 +236,7 @@
           <h3>Next 7 days · model forecast · Dire Dawa</h3>
           <div id="forecast-container">Loading model forecast...</div>
           <p style="font-size:0.65rem; color:#94a3b8; margin-top:8px;">
-            Data: Open-Meteo.com global weather-model grid cell forecast (CC BY 4.0)[cite: 1, 4, 5].
+            Data: Open-Meteo.com global weather-model grid cell forecast (CC BY 4.0).
           </p>
         </div>
       </div>
@@ -211,7 +246,7 @@
         <div class="card">
           <h3>Ask About This Data</h3>
           <div class="chat-box" id="chatWindow">
-            <div class="chat-msg bot">Answers come only from this dashboard's data. This is a planning tool, not a real-time weather forecast[cite: 1, 4, 5].</div>
+            <div class="chat-msg bot">Answers come only from this dashboard's data. This is a planning tool, not a real-time weather forecast.</div>
           </div>
           <input type="text" id="chatInput" class="search-input" placeholder="e.g. Will Dire Dawa flood in September 2025?" onkeydown="if(event.key==='Enter') sendQuery()">
           <button class="btn active" style="width:100%;" onclick="sendQuery()">Ask Assistant</button>
@@ -223,21 +258,21 @@
         <div class="card">
           <h3>About This Tool</h3>
           <p style="font-size:0.78rem; line-height:1.45; color:#334155;">
-            An open planning tool for flood-exposed cities in eastern Ethiopia[cite: 1, 4, 5]. Combines machine-learning flood susceptibility under current and projected climate with station-based extreme-rainfall statistics[cite: 1, 4, 5].
+            An open planning tool for flood-exposed cities in eastern Ethiopia. Combines machine-learning flood susceptibility under current and projected climate with station-based extreme-rainfall statistics.
           </p>
         </div>
         <div class="card">
           <h3>Methods</h3>
           <p style="font-size:0.75rem; line-height:1.4; color:#475569;">
-            <strong>Susceptibility:</strong> Sentinel-1 SAR & Machine Learning (SSP2-4.5 & SSP5-8.5)[cite: 1, 4, 5].<br>
-            <strong>Rainfall:</strong> GEV distribution fitted by L-moments, cross-validated against POT and regional frequency analysis (72 station-years)[cite: 1, 4, 5].
+            <strong>Susceptibility:</strong> Sentinel-1 SAR & Machine Learning (SSP2-4.5 & SSP5-8.5).<br>
+            <strong>Rainfall:</strong> GEV distribution fitted by L-moments, cross-validated against POT and regional frequency analysis (72 station-years).
           </p>
         </div>
         <div class="card">
           <h3>Funding & Credits</h3>
           <p style="font-size:0.75rem; line-height:1.4; color:#475569;">
-            Funded by European Space Agency–Future Earth Joint Programme (Grant: ESA-545-2025-03)[cite: 1, 4, 5].<br>
-            <strong>Developer:</strong> Kalid Hassen Yasin (Haramaya University)[cite: 1, 4, 5].
+            Funded by NORAD–NTNU Joint Programme (Grant: NORHEID II Programme · Grant 662-2025-03)[cite: 5].<br>
+            <strong>Web developer:</strong> Mohammed Mussa Abdulahi · Haramaya University[cite: 5].
           </p>
         </div>
       </div>
