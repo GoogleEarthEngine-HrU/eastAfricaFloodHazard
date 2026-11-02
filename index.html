@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Eastern Ethiopia Flood Hazard Explorer</title>
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0b192c; color: #334155; }
+    
+    /* Top Navigation Header */
+    #navbar { height: 50px; background: #0b192c; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; border-bottom: 1px solid #1e293b; z-index: 1000; }
+    .brand-group { display: flex; align-items: center; gap: 12px; }
+    .logo-badge { background: #1e293b; color: #38bdf8; font-weight: 800; font-size: 0.8rem; padding: 4px 8px; border-radius: 4px; border: 1px solid #334155; }
+    .nav-title { color: #f8fafc; font-size: 0.9rem; font-weight: 600; }
+    .nav-actions { display: flex; gap: 10px; }
+    .nav-btn { background: #1e293b; color: #e2e8f0; border: 1px solid #334155; padding: 5px 12px; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
+
+    /* Main Dashboard Area */
+    #dashboard { display: flex; flex: 1; height: calc(100vh - 50px); }
+    #map { flex: 1; height: 100%; z-index: 1; }
+    #sidebar { width: 420px; height: 100%; background: #ffffff; overflow-y: auto; display: flex; flex-direction: column; box-shadow: -4px 0 15px rgba(0,0,0,0.1); z-index: 2; }
+    
+    /* Sidebar Navigation Tabs */
+    .tab-header { display: flex; border-bottom: 2px solid #e2e8f0; background: #fff; position: sticky; top: 0; z-index: 10; }
+    .tab-btn { flex: 1; padding: 12px 6px; border: none; background: none; font-size: 0.8rem; font-weight: 700; color: #64748b; cursor: pointer; border-bottom: 3px solid transparent; text-align: center; }
+    .tab-btn.active { color: #0284c7; border-bottom-color: #0284c7; }
+    
+    .tab-content { padding: 16px; display: none; }
+    .tab-content.active { display: block; }
+    
+    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; margin-bottom: 14px; }
+    .card h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; color: #475569; margin-bottom: 8px; font-weight: 700; }
+    
+    /* Controls Styling */
+    .search-input { width: 100%; padding: 8px 12px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 0.82rem; margin-bottom: 6px; }
+    .btn-group { display: flex; gap: 4px; margin-bottom: 8px; }
+    .btn { flex: 1; padding: 6px 4px; font-size: 0.72rem; font-weight: 600; border: 1px solid #cbd5e1; background: #fff; border-radius: 4px; cursor: pointer; text-align: center; color: #334155; }
+    .btn.active { background: #0284c7; color: #fff; border-color: #0284c7; }
+    
+    .slider-container { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; color: #475569; }
+    .slider-container input { flex: 1; }
+
+    /* Susceptibility Color Scale Bar */
+    .sus-bar { display: flex; height: 12px; border-radius: 3px; overflow: hidden; margin-top: 6px; }
+    .sus-class { flex: 1; text-align: center; font-size: 0.6rem; color: #fff; line-height: 12px; font-weight: 700; }
+    .c-vlow { background: #2b83ba; }
+    .c-low { background: #abdda4; }
+    .c-mod { background: #ffffbf; color: #333; }
+    .c-high { background: #fdae61; }
+    .c-vhigh { background: #d7191c; }
+
+    /* Layer Options Checkboxes */
+    .checkbox-group { display: flex; flex-direction: column; gap: 6px; font-size: 0.8rem; color: #334155; }
+    .checkbox-group label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+
+    /* Woreda Brief Card */
+    .brief-header { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 10px; margin-bottom: 10px; }
+    .brief-title { font-size: 0.95rem; font-weight: 700; color: #1e40af; }
+    .brief-meta { font-size: 0.75rem; color: #3b82f6; }
+    .action-list { font-size: 0.78rem; line-height: 1.45; color: #334155; padding-left: 16px; margin-top: 6px; }
+
+    /* Forecast Table */
+    .forecast-table { width: 100%; border-collapse: collapse; font-size: 0.68rem; text-align: center; margin-top: 6px; background: #fff; border-radius: 4px; overflow: hidden; border: 1px solid #e2e8f0; }
+    .forecast-table th { background: #f1f5f9; padding: 4px 2px; font-weight: 700; color: #1e293b; border-bottom: 1px solid #e2e8f0; }
+    .forecast-table td { padding: 5px 2px; border-bottom: 1px solid #f1f5f9; }
+
+    /* Chat Assistant Input */
+    .chat-box { height: 180px; overflow-y: auto; background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 10px; font-size: 0.78rem; margin-bottom: 8px; }
+    .chat-msg { margin-bottom: 8px; line-height: 1.4; }
+    .chat-msg.user { color: #0284c7; font-weight: 600; }
+    .chat-msg.bot { color: #334155; }
+  </style>
+</head>
+<body>
+
+  <!-- Top Navigation Bar -->
+  <div id="navbar">
+    <div class="brand-group">
+      <span class="logo-badge" style="color:#00aeef;">ESA</span>
+      <span class="logo-badge" style="color:#10b981;">FUTURE EARTH</span>
+      <span class="logo-badge" style="color:#f59e0b;">HARAMAYA</span>
+      <span class="nav-title">Eastern Ethiopia Flood Hazard Explorer</span>
+    </div>
+    <div class="nav-actions">
+      <button class="nav-btn">Share</button>
+      <button class="nav-btn">English ▾</button>
+    </div>
+  </div>
+
+  <!-- Dashboard Container -->
+  <div id="dashboard">
+    <!-- Map Viewport -->
+    <div id="map"></div>
+
+    <!-- Sidebar Viewport -->
+    <div id="sidebar">
+      
+      <!-- Top Navigation Tabs -->
+      <div class="tab-header">
+        <button class="tab-btn active" onclick="switchTab('susceptibility')">Susceptibility</button>
+        <button class="tab-btn" onclick="switchTab('rainfall')">Rainfall hazard</button>
+        <button class="tab-btn" onclick="switchTab('ask')">Ask</button>
+        <button class="tab-btn" onclick="switchTab('about')">About</button>
+      </div>
+
+      <!-- TAB 1: SUSCEPTIBILITY -->
+      <div id="tab-susceptibility" class="tab-content active">
+        
+        <!-- Woreda Search -->
+        <div class="card">
+          <h3>Find a Woreda</h3>
+          <input type="text" id="woredaSearch" class="search-input" placeholder="Type a woreda or zone name..." oninput="filterWoreda(this.value)">
+        </div>
+
+        <!-- Climate Scenario Selector -->
+        <div class="card">
+          <h3>Climate Scenario</h3>
+          <div class="btn-group">
+            <button class="btn active" onclick="setScenario('baseline')">Current (baseline)</button>
+            <button class="btn" onclick="setScenario('ssp245')">SSP2-4.5</button>
+            <button class="btn" onclick="setScenario('ssp585')">SSP5-8.5</button>
+          </div>
+          <div class="slider-container">
+            <label>Layer transparency:</label>
+            <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.85" oninput="updateOpacity(this.value)">
+            <span id="opacityVal">85%</span>
+          </div>
+        </div>
+
+        <!-- Susceptibility Legend -->
+        <div class="card">
+          <h3>Susceptibility</h3>
+          <div class="sus-bar">
+            <div class="sus-class c-vlow">V.Low</div>
+            <div class="sus-class c-low">Low</div>
+            <div class="sus-class c-mod">Mod</div>
+            <div class="sus-class c-high">High</div>
+            <div class="sus-class c-vhigh">V.High</div>
+          </div>
+        </div>
+
+        <!-- Map Layer Toggles -->
+        <div class="card">
+          <h3>Map Layers</h3>
+          <div class="checkbox-group">
+            <label><input type="checkbox" checked onchange="toggleLayer('susceptibility', this.checked)"> Flood susceptibility</label>
+            <label><input type="checkbox" checked onchange="toggleLayer('woredas', this.checked)"> Woredas & Districts</label>
+            <label><input type="checkbox" onchange="toggleLayer('subbasins', this.checked)"> Sub-basins</label>
+            <label><input type="checkbox" onchange="toggleLayer('rivers', this.checked)"> Rivers & streams</label>
+            <label><input type="checkbox" checked onchange="toggleLayer('stations', this.checked)"> Rainfall stations</label>
+          </div>
+        </div>
+
+        <!-- Dynamic Woreda Brief Output -->
+        <div id="woreda-brief-card" class="card" style="display:none;">
+          <div class="brief-header">
+            <div class="brief-title" id="brief-woreda-name">Selected District</div>
+            <div class="brief-meta" id="brief-woreda-region">Region: Ethiopia</div>
+          </div>
+          <p style="font-size:0.8rem; margin-bottom:6px;"><strong>High + Very High Exposure:</strong> <span id="brief-exposure-pct">77.7%</span></p>
+          <p style="font-size:0.75rem; color:#475569; line-height:1.4;" id="brief-text-summary">
+            Selected district analysis based on machine learning flood susceptibility modeling.
+          </p>
+          <h4 style="font-size:0.75rem; margin-top:10px; color:#1e40af;">Recommended Actions:</h4>
+          <ul class="action-list">
+            <li>Treat main channel corridors as primary risk assets.</li>
+            <li>Establish automated rain gauges for lead time.</li>
+            <li>Design local drainage to regional pooled return level standards.</li>
+          </ul>
+        </div>
+      </div>
+
+      <!-- TAB 2: RAINFALL HAZARD -->
+      <div id="tab-rainfall" class="tab-content">
+        <div class="card">
+          <h3>Return Period Planning Horizon</h3>
+          <div class="slider-container">
+            <label>Planning horizon:</label>
+            <input type="range" min="1" max="10" value="3" oninput="updateHorizon(this.value)">
+            <span id="horizonVal">3 years</span>
+          </div>
+          <div style="margin-top:10px; font-size:1.4rem; font-weight:800; color:#0284c7;" id="horizonRisk">12%</div>
+          <div style="font-size:0.75rem; color:#64748b;">chance of at least one 25-year magnitude event within 3 years</div>
+        </div>
+
+        <div class="card">
+          <h3>Station Guidance · Dire Dawa</h3>
+          <p style="font-size:0.78rem; line-height:1.4; color:#334155;">
+            13 years of record. 4.5 days/year exceed the 30 mm flood threshold.<br>
+            <strong>Design Recommendation:</strong> Use 106 mm/day (at-site) or 115 mm/day (regional pooled, recommended) as 25-year design depth.
+          </p>
+        </div>
+
+        <!-- 7-Day Weather Model Forecast -->
+        <div class="card">
+          <h3>Next 7 days · model forecast · Dire Dawa</h3>
+          <div id="forecast-container">Loading model forecast...</div>
+          <p style="font-size:0.65rem; color:#94a3b8; margin-top:8px;">
+            Data: Open-Meteo.com global weather-model grid cell forecast (CC BY 4.0)[cite: 1, 4, 5].
+          </p>
+        </div>
+      </div>
+
+      <!-- TAB 3: ASK -->
+      <div id="tab-ask" class="tab-content">
+        <div class="card">
+          <h3>Ask About This Data</h3>
+          <div class="chat-box" id="chatWindow">
+            <div class="chat-msg bot">Answers come only from this dashboard's data. This is a planning tool, not a real-time weather forecast[cite: 1, 4, 5].</div>
+          </div>
+          <input type="text" id="chatInput" class="search-input" placeholder="e.g. Will Dire Dawa flood in September 2025?" onkeydown="if(event.key==='Enter') sendQuery()">
+          <button class="btn active" style="width:100%;" onclick="sendQuery()">Ask Assistant</button>
+        </div>
+      </div>
+
+      <!-- TAB 4: ABOUT -->
+      <div id="tab-about" class="tab-content">
+        <div class="card">
+          <h3>About This Tool</h3>
+          <p style="font-size:0.78rem; line-height:1.45; color:#334155;">
+            An open planning tool for flood-exposed cities in eastern Ethiopia[cite: 1, 4, 5]. Combines machine-learning flood susceptibility under current and projected climate with station-based extreme-rainfall statistics[cite: 1, 4, 5].
+          </p>
+        </div>
+        <div class="card">
+          <h3>Methods</h3>
+          <p style="font-size:0.75rem; line-height:1.4; color:#475569;">
+            <strong>Susceptibility:</strong> Sentinel-1 SAR & Machine Learning (SSP2-4.5 & SSP5-8.5)[cite: 1, 4, 5].<br>
+            <strong>Rainfall:</strong> GEV distribution fitted by L-moments, cross-validated against POT and regional frequency analysis (72 station-years)[cite: 1, 4, 5].
+          </p>
+        </div>
+        <div class="card">
+          <h3>Funding & Credits</h3>
+          <p style="font-size:0.75rem; line-height:1.4; color:#475569;">
+            Funded by European Space Agency–Future Earth Joint Programme (Grant: ESA-545-2025-03)[cite: 1, 4, 5].<br>
+            <strong>Developer:</strong> Kalid Hassen Yasin (Haramaya University)[cite: 1, 4, 5].
+          </p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Application JS -->
+  <script src="app.js"></script>
+</body>
+</html>
