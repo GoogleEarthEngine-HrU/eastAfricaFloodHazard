@@ -22,39 +22,27 @@
 
     /* Main Dashboard Area */
     #dashboard { display: flex; flex: 1; height: calc(100vh - 50px); position: relative; }
-    #map-wrapper { flex: 1; height: 100%; position: relative; }
-    #map { width: 100%; height: 100%; z-index: 1; }
+    #map-wrapper { flex: 1; height: 100%; position: relative; display: flex; flex-direction: column; }
+    #map { flex: 1; width: 100%; z-index: 1; }
     #sidebar { width: 420px; height: 100%; background: #ffffff; overflow-y: auto; display: flex; flex-direction: column; box-shadow: -4px 0 15px rgba(0,0,0,0.1); z-index: 2; }
     
-    /* Map Custom Footer Badges (Bottom Left & Bottom Right) */
-    .map-footer-left {
-      position: absolute;
-      bottom: 8px;
-      left: 110px; /* Positioned beside the Leaflet scale bar */
+    /* Bottom Bar Layout matching screenshot */
+    .map-footer-bar {
+      height: 32px;
+      background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 15px;
+      font-size: 0.75rem;
+      color: #475569;
       z-index: 1000;
-      background: rgba(255, 255, 255, 0.92);
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #1e293b;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-      border: 1px solid #cbd5e1;
     }
-    .map-footer-right {
-      position: absolute;
-      bottom: 8px;
-      right: 10px;
-      z-index: 1000;
-      background: rgba(255, 255, 255, 0.92);
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      color: #1e293b;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-      border: 1px solid #cbd5e1;
-    }
+    .map-footer-left { font-weight: 600; color: #1e293b; }
+    .map-footer-left span { color: #64748b; font-weight: normal; }
+    .map-footer-right { color: #475569; }
+    .map-footer-right span { color: #0284c7; font-weight: 600; }
 
     /* Sidebar Navigation Tabs */
     .tab-header { display: flex; border-bottom: 2px solid #e2e8f0; background: #fff; position: sticky; top: 0; z-index: 10; }
@@ -125,11 +113,13 @@
 
   <!-- Dashboard Container -->
   <div id="dashboard">
-    <!-- Map Viewport -->
+    <!-- Map Viewport and Bottom Footer Bar -->
     <div id="map-wrapper">
       <div id="map"></div>
-      <div class="map-footer-left">NORHEID II Programme · Grant 662-2025-03</div>
-      <div class="map-footer-right">Web developer: Mohammed Mussa Abdulahi · Haramaya University</div>
+      <div class="map-footer-bar">
+        <div class="map-footer-left">NORHEID II Programme · <span>Grant 662-2025-03</span></div>
+        <div class="map-footer-right">Web developer: <span>Mohammed Mussa Abdulahi</span> · Haramaya University</div>
+      </div>
     </div>
 
     <!-- Sidebar Viewport -->
