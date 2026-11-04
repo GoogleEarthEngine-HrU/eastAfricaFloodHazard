@@ -9,7 +9,9 @@ const CONFIG = {
   geojsonCandidates: ['Woredas & Districts.geojson', 'Woredas_Districts.geojson'],
   csv: 'District_Rainfall_Hazard_Summary.csv',
   // Optional: exact GeoJSON property holding the district name (e.g. 'ADMIN3'). null = auto-detect.
-  nameField: null
+  nameField: null,
+  scaleKm: 10,          // length of the fixed scale bar (km)
+  fillOpacity: 0.7      // district fill opacity
 };
 
 // Indicators shown on the map. Columns missing from the CSV are skipped automatically.
@@ -34,7 +36,12 @@ const state = {
   T: 25,            // return period used for the planning-horizon calculator
   years: 3,
   selected: null,
-  rasterOn: true
+  rasterOn: true,
+  scenario: 'baseline',
+  period: '2041–2060',
+  compare: false,       // swipe comparison against the current (baseline) layer
+  swipe: 0.5,
+  showAll: false        // "Expected daily rainfall" list: top 5 or all districts
 };
 const data = {};            // normalised district name -> CSV record
 const layersByKey = {};     // normalised district name -> Leaflet layer
@@ -56,39 +63,101 @@ function hideStatus() { $('data-status').style.display = 'none'; }
 
 // ---------- map ----------
 const map = L.map('map', { maxZoom: 16 }).setView([8.9, 40.2], 8);
-L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(map);
+// Fixed-length scale bar: always labelled CONFIG.scaleKm (10 km); its pixel width follows the zoom level.
+const FixedScale = L.Control.extend({
+  options: { position: 'bottomleft' },
+  onAdd(m) {
+    const box = L.DomUtil.create('div', 'scale-fixed');
+    this._bar = L.DomUtil.create('div', 'scale-fixed-bar', box);
+    L.DomUtil.create('span', 'scale-fixed-label', box).textContent = `${CONFIG.scaleKm} km`;
+    m.on('zoomend moveend', this._update, this);
+    this._update();
+    return box;
+  },
+  onRemove(m) { m.off('zoomend moveend', this._update, this); },
+  _update() {
+    const m = this._map, y = m.getSize().y / 2;
+    const metresPerPx = m.distance(m.containerPointToLatLng([0, y]), m.containerPointToLatLng([100, y])) / 100;
+    this._bar.style.width = `${Math.max(2, Math.round(CONFIG.scaleKm * 1000 / metresPerPx))}px`;
+  }
+});
+new FixedScale().addTo(map);
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
   attribution: 'Tiles &copy; Esri', maxZoom: 16, zIndex: 1
 }).addTo(map);
 
-// Climate-scenario raster layer.
+// ---------- Climate-scenario raster layers ----------
 // PLACEHOLDER: these three Esri basemaps only stand in for real susceptibility rasters.
-// Replace each URL with your own tile service (e.g. .../ssp245/{z}/{x}/{y}.png) when available.
-const rasterOpts = { opacity: 0.85, zIndex: 2, maxZoom: 16 };
-const rasterLayers = {
-  baseline: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', rasterOpts),
-  ssp245:   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', rasterOpts),
-  ssp585:   L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', rasterOpts)
+// To use real tiles, edit rasterUrl(): it receives the scenario ('baseline' | 'ssp245' | 'ssp585')
+// and the time period (one of PERIODS) and must return an XYZ tile URL template.
+const PERIODS = ['2021–2040', '2041–2060', '2081–2100'];
+const PLACEHOLDER_TILES = {
+  baseline: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+  ssp245:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+  ssp585:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
 };
-let activeRaster = rasterLayers.baseline;
-activeRaster.addTo(map);
+function rasterUrl(scenario, period) {      // eslint-disable-line no-unused-vars
+  return PLACEHOLDER_TILES[scenario];       // e.g. return `tiles/${scenario}_${period}/{z}/{x}/{y}.png`;
+}
 
-function setScenario(key, btn) {
-  document.querySelectorAll('#scenarioGroup .btn').forEach(b => b.classList.toggle('active', b === btn));
-  if (state.rasterOn) map.removeLayer(activeRaster);
-  activeRaster = rasterLayers[key];
-  activeRaster.setOpacity(parseFloat($('opacitySlider').value));
-  if (state.rasterOn) activeRaster.addTo(map);
+const rasterCache = {};
+function getRaster(scenario, period) {
+  const key = scenario === 'baseline' ? 'baseline' : `${scenario}|${period}`;
+  return rasterCache[key] || (rasterCache[key] = L.tileLayer(rasterUrl(scenario, period), {
+    opacity: parseFloat($('opacitySlider').value), zIndex: scenario === 'baseline' ? 2 : 3, maxZoom: 16
+  }));
+}
+let activeRaster = null;
+
+const isComparing = () => state.rasterOn && state.compare && state.scenario !== 'baseline';
+
+// Rebuilds which raster layers are on the map for the current scenario / period / compare / visibility.
+function applyRaster() {
+  Object.values(rasterCache).forEach(l => map.removeLayer(l));
+  activeRaster = getRaster(state.scenario, state.period);
+  const op = parseFloat($('opacitySlider').value);
+  Object.values(rasterCache).forEach(l => l.setOpacity(op));
+  if (state.rasterOn) {
+    if (isComparing()) getRaster('baseline').addTo(map);   // current layer underneath
+    activeRaster.addTo(map);
+  }
+  const baseline = state.scenario === 'baseline';
+  $('periodSelect').disabled = baseline;
+  $('compareBox').disabled = baseline;
+  if (baseline) { state.compare = false; $('compareBox').checked = false; }
+  updateCompare();
+}
+
+// Swipe: the scenario layer is clipped so the current layer shows on its left side.
+function updateCompare() {
+  Object.values(rasterCache).forEach(l => { const c = l.getContainer && l.getContainer(); if (c) c.style.clip = ''; });
+  const on = isComparing();
+  $('swipe').style.display = on ? 'block' : 'none';
+  if (!on) return;
+  const el = activeRaster.getContainer && activeRaster.getContainer();
+  if (!el) return;
+  const size = map.getSize(), nw = map.containerPointToLayerPoint([0, 0]), se = map.containerPointToLayerPoint(size);
+  const x = nw.x + 14 + (size.x - 28) * state.swipe;       // 14 px = half the slider thumb
+  el.style.clip = `rect(${nw.y}px, ${se.x}px, ${se.y}px, ${x}px)`;
+}
+map.on('move zoom resize', updateCompare);
+
+function setScenario(key) {
+  state.scenario = key;
+  document.querySelectorAll('#scenarioGroup .btn').forEach(b => b.classList.toggle('active', b.dataset.scenario === key));
+  applyRaster();
+}
+function setPeriod(p) { state.period = p; applyRaster(); }
+function setCompare(on) { state.compare = on; applyRaster(); }
+function setSwipe(v) {
+  state.swipe = +v;
+  $('swipeLine').style.left = `calc(14px + (100% - 28px) * ${state.swipe})`;
+  updateCompare();
 }
 
 function updateOpacity(val) {               // raster transparency
   $('opacityVal').textContent = `${Math.round(val * 100)}%`;
-  activeRaster.setOpacity(parseFloat(val));
-}
-
-function updateFill(val) {                  // district fill transparency
-  $('fillVal').textContent = `${Math.round(val * 100)}%`;
-  refreshMap();
+  Object.values(rasterCache).forEach(l => l.setOpacity(parseFloat(val)));
 }
 
 // ---------- CSV ----------
@@ -167,7 +236,7 @@ function styleFor(key) {
   return {
     color: sel ? '#0b192c' : '#334155',
     weight: sel ? 3 : 1,
-    fillOpacity: parseFloat($('fillSlider').value),
+    fillOpacity: CONFIG.fillOpacity,
     fillColor: cls >= 0 ? COLORS[cls] : NO_DATA_COLOR
   };
 }
@@ -247,9 +316,6 @@ async function loadBoundaries() {
 
 // ---------- indicator / legend / ranking ----------
 function buildIndicatorMenu() {
-  const sel = $('indicatorSelect');
-  sel.innerHTML = Object.entries(indicators).map(([k, v]) => `<option value="${k}">${esc(v.label)} (${esc(v.unit)})</option>`).join('');
-  sel.value = state.indicator;
   const rp = $('returnPeriod');                         // only offer return periods present in the CSV
   [...rp.options].forEach(o => { o.disabled = !indicators[`Return_Level_${o.value}yr_mm`]; });
   if (indicators[`Return_Level_${state.T}yr_mm`]) rp.value = String(state.T);
@@ -258,7 +324,6 @@ function buildIndicatorMenu() {
 function setIndicator(key) {
   if (!indicators[key]) return;
   state.indicator = key;
-  $('indicatorSelect').value = key;
   const m = key.match(/^Return_Level_(\d+)yr_mm$/);
   if (m) { state.T = +m[1]; $('returnPeriod').value = m[1]; }
   refreshMap();
@@ -269,7 +334,8 @@ function setReturnPeriod(T) { setIndicator(`Return_Level_${T}yr_mm`); }
 function refreshMap() {
   Object.entries(layersByKey).forEach(([k, l]) => l.setStyle(styleFor(k)));
   renderLegend();
-  renderRanking();
+  renderExpected();
+  renderGuidance();
   updateHorizon(state.years);
   if (state.selected) renderBrief(state.selected);
 }
@@ -287,21 +353,43 @@ function renderLegend() {
   $('legend-range').textContent = `Equal-interval classes: ${fmt(min, ind.dec)} – ${fmt(min + 5 * step, ind.dec)} ${ind.unit}`;
 }
 
-function renderRanking() {
-  const ind = indicators[state.indicator];
-  if (!ind) return;
-  const rows = Object.values(data)
-    .filter(r => Number.isFinite(r[state.indicator]))
-    .sort((a, b) => b[state.indicator] - a[state.indicator]);
-  const top = rows.slice(0, 10);
-  $('ranking').innerHTML = `<table class="forecast-table rank-table"><thead><tr><th>#</th><th style="text-align:left">District</th><th>${esc(ind.unit)}</th></tr></thead><tbody>` +
-    top.map((r, i) =>
-      `<tr onclick="selectDistrict('${norm(r.District)}', true)" style="cursor:pointer"><td>${i + 1}</td><td style="text-align:left">${esc(r.District)}</td><td><b>${fmt(r[state.indicator], ind.dec)}</b></td></tr>`
-    ).join('') + `</tbody></table><p class="note">Top ${top.length} of ${rows.length} districts · click a row to open it.</p>`;
+// "Expected daily rainfall": districts ranked by the selected return-period depth
+function renderExpected() {
+  const rl = `Return_Level_${state.T}yr_mm`;
+  $('expected-title').textContent = `Expected daily rainfall · ${state.T}-year return level`;
+  const rows = Object.values(data).filter(r => Number.isFinite(r[rl])).sort((a, b) => b[rl] - a[rl]);
+  if (!rows.length) { $('expected-list').innerHTML = `<p class="note">No ${state.T}-year values in the table.</p>`; return; }
+  const shown = state.showAll ? rows : rows.slice(0, 5);
+  $('expected-list').innerHTML = `<table class="forecast-table rank-table"><tbody>` + shown.map(r => {
+    const key = norm(r.District), sel = key === state.selected;
+    return `<tr onclick="selectDistrict('${key}')" style="cursor:pointer${sel ? ';background:#eff6ff' : ''}"><td style="text-align:left">${esc(r.District)}${sel ? ' ▲' : ''}</td><td style="text-align:right"><b>${fmt(r[rl], 0)}</b> mm</td></tr>`;
+  }).join('') + `</tbody></table>`;
+  const btn = $('expected-toggle');
+  btn.style.display = rows.length > 5 ? 'block' : 'none';
+  btn.textContent = state.showAll ? 'Show top 5' : `Show all ${rows.length} districts`;
+}
+function toggleExpected() { state.showAll = !state.showAll; renderExpected(); }
+
+// "Station guidance" + "Design & monitoring guidance" for the selected district
+function renderGuidance() {
+  const box = $('guidance'), r = data[state.selected];
+  if (!r) { box.innerHTML = '<p class="note">Click a district on the map, or pick one in the list above, to see its guidance.</p>'; return; }
+  const rl = r[`Return_Level_${state.T}yr_mm`];
+  const days = r.Heavy_Days_30mm_yr;
+  box.innerHTML =
+    `<div style="display:flex;justify-content:space-between;align-items:baseline"><strong style="font-size:0.9rem">${esc(r.District)}</strong>` +
+    `<span style="font-size:1.1rem;font-weight:800;color:#0284c7">${fmt(rl, 0)} MM</span></div>` +
+    (Number.isFinite(days) ? `<p style="font-size:0.78rem;line-height:1.4;margin-top:4px">${fmt(days, 1)} days/year exceed the 30 mm flood threshold.</p>` : '') +
+    `<h4 style="font-size:0.75rem;margin:10px 0 4px;color:#1e40af">Design &amp; monitoring guidance</h4>` +
+    `<ul class="action-list">` +
+    (Number.isFinite(rl) ? `<li>Use <strong>${fmt(rl, 0)} mm/day</strong> as the ${state.T}-year urban drainage design depth.</li>` : '') +
+    `<li>Flash floods in ephemeral streams are driven by sub-daily intensity, not daily depth. Install automatic telemetered gauges upstream for lead time.</li>` +
+    `<li>Set a local warning trigger well below the design value; 30 mm/day (the flood threshold used here) can already generate damaging runoff.</li>` +
+    `</ul>`;
 }
 
 // ---------- district selection ----------
-function selectDistrict(key, jumpToTab) {
+function selectDistrict(key) {
   if (!data[key]) return;
   const prev = state.selected;
   state.selected = key;
@@ -312,7 +400,8 @@ function selectDistrict(key, jumpToTab) {
     map.fitBounds(layer.getBounds(), { maxZoom: 10 });
   }
   renderBrief(key);
-  if (jumpToTab) switchTab('districts');
+  renderExpected();
+  renderGuidance();
   loadForecast(layer ? layer.getBounds().getCenter() : map.getCenter(), data[key].District);
 }
 
@@ -357,16 +446,17 @@ function toggleLayer(name, on) {
   if (name === 'districts' && geoLayer) on ? map.addLayer(geoLayer) : map.removeLayer(geoLayer);
   else if (name === 'susceptibility') {
     state.rasterOn = on;
-    on ? activeRaster.addTo(map) : map.removeLayer(activeRaster);
+    applyRaster();
   }
 }
 
 // Probability of at least one T-year event in n years: 1 - (1 - 1/T)^n
 function updateHorizon(years) {
   state.years = +years;
-  $('horizonVal').textContent = `${years} year${+years === 1 ? '' : 's'}`;
   const risk = (1 - Math.pow(1 - 1 / state.T, years)) * 100;
   $('horizonRisk').textContent = `${Math.round(risk)}%`;
+  $('horizonHead').textContent = `Chance in next ${years} year${+years === 1 ? '' : 's'}`;
+  $('horizonLabel').textContent = `Planning horizon · ${years} year${+years === 1 ? '' : 's'}`;
   $('horizonText').textContent = `chance of at least one ${state.T}-year magnitude event within ${years} year${+years === 1 ? '' : 's'}`;
 }
 
@@ -384,6 +474,7 @@ async function shareLink(btn) {
 }
 
 // ---------- Open-Meteo 7-day forecast (for the selected district centre) ----------
+const FLOOD_THRESHOLD_MM = 30;
 let forecastToken = 0;
 async function loadForecast(latlng, name) {
   const token = ++forecastToken;                     // ignore stale responses if the user clicks quickly
@@ -391,18 +482,31 @@ async function loadForecast(latlng, name) {
   $('forecast-title').textContent = `Next 7 days · model forecast · ${name}`;
   c.textContent = 'Loading model forecast...';
   const url = `https://api.open-meteo.com/v1/forecast?latitude=${latlng.lat.toFixed(4)}&longitude=${latlng.lng.toFixed(4)}` +
-    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max&timezone=Africa%2FAddis_Ababa`;
+    `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,precipitation_hours,wind_gusts_10m_max` +
+    `&timezone=Africa%2FAddis_Ababa`;
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(res.status);
     const d = (await res.json()).daily;
     if (token !== forecastToken) return;
     const days = d.time.map((t, i) => i === 0 ? 'Today' : new Date(t + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short' }));
+    const num = (arr, i) => (arr && Number.isFinite(arr[i])) ? arr[i] : null;
+    const rain = d.time.map((_, i) => num(d.precipitation_sum, i) ?? 0);
+    const scale = Math.max(FLOOD_THRESHOLD_MM, ...rain);
     const row = (label, fn) => `<tr><td style="font-weight:600;text-align:left">${label}</td>${d.time.map((_, i) => `<td>${fn(i)}</td>`).join('')}</tr>`;
+    const dash = v => v === null ? '–' : v;
     c.innerHTML = `<table class="forecast-table"><thead><tr><th>Metric</th>${days.map(n => `<th>${n}</th>`).join('')}</tr></thead><tbody>` +
-      row('Temp °C', i => `${Math.round(d.temperature_2m_max[i])}°<br>${Math.round(d.temperature_2m_min[i])}°`) +
-      row('Rain mm', i => { const r = d.precipitation_sum[i] ?? 0; return `<b style="color:${r >= 30 ? '#e11d48' : '#0284c7'}">${r.toFixed(1)}</b>`; }) +
-      row('Chance', i => `${d.precipitation_probability_max[i] ?? 0}%`) + `</tbody></table>`;
+      row('Temp °C', i => `${dash(Math.round(d.temperature_2m_max[i]))}°<br>${dash(Math.round(d.temperature_2m_min[i]))}°`) +
+      row('Daily rain (mm)', i => {
+        const r = rain[i], hot = r >= FLOOD_THRESHOLD_MM;
+        return `<div class="rbar"><i class="thr" style="bottom:${FLOOD_THRESHOLD_MM / scale * 100}%"></i><b class="bar${hot ? ' hot' : ''}" style="height:${r / scale * 100}%"></b></div>` +
+          `<b style="color:${hot ? '#e11d48' : '#0284c7'}">${r.toFixed(1)}</b>`;
+      }) +
+      row('Chance of rain', i => `${num(d.precipitation_probability_max, i) ?? 0}%`) +
+      row('Hours of rain', i => `${num(d.precipitation_hours, i) ?? 0} h`) +
+      row('Max gust (km/h)', i => { const g = num(d.wind_gusts_10m_max, i); return g === null ? '–' : Math.round(g); }) +
+      `</tbody></table>` +
+      `<p class="note"><span style="color:#0284c7">■</span> Daily rain (mm) &nbsp; <span style="color:#e11d48">┄</span> NMI flood threshold (${FLOOD_THRESHOLD_MM} mm) &nbsp; · &nbsp;Updated ${new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</p>`;
   } catch (e) {
     if (token !== forecastToken) return;
     c.textContent = 'Forecast unavailable (offline or service error).';
@@ -448,6 +552,8 @@ function sendQuery() {
 
 // ---------- init ----------
 (async function init() {
+  applyRaster();
+  setSwipe(state.swipe);
   let tableOk = false;
   try {
     await loadTable();
@@ -456,7 +562,7 @@ function sendQuery() {
     const n = districtCount();
     document.querySelectorAll('.n-districts').forEach(el => { el.textContent = n; });
     $('districtList').innerHTML = Object.values(data).map(r => `<option value="${esc(r.District)}">`).join('');
-    renderLegend(); renderRanking(); updateHorizon(state.years);
+    renderLegend(); renderExpected(); renderGuidance(); updateHorizon(state.years);
   } catch (err) {
     console.error(err);
     showStatus(`⚠ Could not load rainfall table: ${esc(err.message)}.<br>Open the page through a web server and check file names in CONFIG (top of app.js).`);

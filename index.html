@@ -80,6 +80,31 @@
     .chat-msg { margin-bottom: 8px; line-height: 1.4; }
     .chat-msg.user { color: #0284c7; font-weight: 600; }
 
+    .action-list { font-size: 0.78rem; line-height: 1.45; padding-left: 16px; margin-top: 6px; }
+    .action-list li { margin-bottom: 4px; }
+    .linkbtn { display: none; width: 100%; margin-top: 6px; background: none; border: none; color: #0284c7; font-size: 0.75rem; font-weight: 600; cursor: pointer; padding: 4px; }
+
+    /* Rain bars with the 30 mm flood-threshold line */
+    .rbar { position: relative; height: 44px; margin-bottom: 2px; }
+    .rbar .bar { position: absolute; left: 22%; right: 22%; bottom: 0; background: #0284c7; border-radius: 2px 2px 0 0; }
+    .rbar .bar.hot { background: #e11d48; }
+    .rbar .thr { position: absolute; left: 0; right: 0; border-top: 1px dashed #e11d48; }
+
+    /* Swipe comparison control (sits over the map) */
+    #swipe { display: none; position: absolute; top: 0; left: 0; right: 0; bottom: 32px; z-index: 500; pointer-events: none; }
+    #swipeLine { position: absolute; top: 0; bottom: 0; width: 3px; margin-left: -1.5px; background: #fff; box-shadow: 0 0 4px rgba(0,0,0,.5); }
+    #swipe input { position: absolute; left: 0; top: 50%; width: 100%; height: 28px; margin: -14px 0 0; padding: 0; background: transparent; pointer-events: none; -webkit-appearance: none; appearance: none; }
+    #swipe input::-webkit-slider-runnable-track { background: transparent; height: 28px; }
+    #swipe input::-moz-range-track { background: transparent; height: 28px; }
+    #swipe input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 28px; height: 28px; border-radius: 50%; background: #0284c7; border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); cursor: ew-resize; }
+    #swipe input::-moz-range-thumb { pointer-events: auto; width: 22px; height: 22px; border-radius: 50%; background: #0284c7; border: 3px solid #fff; cursor: ew-resize; }
+    .swipe-tag { position: absolute; top: 10px; font-size: 0.7rem; font-weight: 700; background: rgba(11,25,44,.8); color: #fff; padding: 3px 8px; border-radius: 4px; }
+
+    /* Fixed 10 km scale bar */
+    .scale-fixed { background: rgba(255,255,255,.8); padding: 2px 6px 3px; border-radius: 3px; margin: 0 0 8px 10px; font-size: 11px; color: #333; line-height: 1.2; }
+    .scale-fixed-bar { height: 6px; border: 2px solid #333; border-top: none; margin-bottom: 1px; box-sizing: border-box; }
+    .scale-fixed-label { font-weight: 600; }
+
     @media (max-width: 800px) {
       #dashboard { flex-direction: column; }
       #map-wrapper { flex: none; height: 50%; }
@@ -107,6 +132,12 @@
     <!-- Map and footer bar -->
     <div id="map-wrapper">
       <div id="map"></div>
+      <div id="swipe">
+        <div id="swipeLine"></div>
+        <span class="swipe-tag" style="left:10px">Current</span>
+        <span class="swipe-tag" style="right:10px">Scenario</span>
+        <input type="range" min="0" max="1" step="0.001" value="0.5" oninput="setSwipe(this.value)" aria-label="Swipe to compare scenario with current">
+      </div>
       <div class="map-footer-bar">
         <div class="map-footer-left">NORHEID II Programme · <span>Grant 662-2025-03</span></div>
         <div class="map-footer-right">Web developer: <span>Mohammed Mussa Abdulahi</span> · Haramaya University</div>
@@ -136,50 +167,46 @@
         <div class="card">
           <h3>Climate scenario</h3>
           <div class="btn-group" id="scenarioGroup">
-            <button class="btn active" onclick="setScenario('baseline', this)">Current (baseline)</button>
-            <button class="btn" onclick="setScenario('ssp245', this)">SSP2-4.5</button>
-            <button class="btn" onclick="setScenario('ssp585', this)">SSP5-8.5</button>
+            <button class="btn active" data-scenario="baseline" onclick="setScenario('baseline')">Current (baseline)</button>
+            <button class="btn" data-scenario="ssp245" onclick="setScenario('ssp245')">SSP2-4.5</button>
+            <button class="btn" data-scenario="ssp585" onclick="setScenario('ssp585')">SSP5-8.5</button>
           </div>
-          <div class="slider-container">
-            <label for="opacitySlider">Layer transparency:</label>
+          <h3 style="margin-top:6px;"><label for="periodSelect">Time period</label></h3>
+          <select id="periodSelect" class="search-input" onchange="setPeriod(this.value)" disabled>
+            <option>2021–2040</option>
+            <option selected>2041–2060</option>
+            <option>2081–2100</option>
+          </select>
+          <div class="slider-container" style="margin-bottom:2px;">
+            <label for="opacitySlider">Layer transparency · <span id="opacityVal">85%</span></label>
             <input type="range" id="opacitySlider" min="0" max="1" step="0.05" value="0.85" oninput="updateOpacity(this.value)">
-            <span id="opacityVal">85%</span>
+          </div>
+          <div class="checkbox-group" style="margin-top:6px;">
+            <label><input type="checkbox" id="compareBox" disabled onchange="setCompare(this.checked)"> Compare with current (swipe)</label>
           </div>
         </div>
 
         <div class="card">
           <h3>Susceptibility</h3>
           <div class="sus-bar">
-            <div class="sus-class c-vlow">V.Low</div>
+            <div class="sus-class c-vlow">Very low</div>
             <div class="sus-class c-low">Low</div>
-            <div class="sus-class c-mod">Mod</div>
+            <div class="sus-class c-mod">Moderate</div>
             <div class="sus-class c-high">High</div>
-            <div class="sus-class c-vhigh">V.High</div>
+            <div class="sus-class c-vhigh">Very high</div>
           </div>
-        </div>
-
-        <div class="card">
-          <h3>District rainfall indicator</h3>
-          <select id="indicatorSelect" class="search-input" onchange="setIndicator(this.value)" aria-label="Map indicator"></select>
-          <div class="slider-container">
-            <label for="fillSlider">District fill:</label>
-            <input type="range" id="fillSlider" min="0.1" max="1" step="0.05" value="0.75" oninput="updateFill(this.value)">
-            <span id="fillVal">75%</span>
-          </div>
-          <h3 id="legend-title" style="margin-top:10px;">Legend</h3>
-          <div class="sus-bar" id="legend-bar"></div>
-          <div class="note" id="legend-range"></div>
         </div>
 
         <div class="card">
           <h3>Map layers</h3>
           <div class="checkbox-group">
             <label><input type="checkbox" checked onchange="toggleLayer('susceptibility', this.checked)"> Flood susceptibility</label>
-            <label><input type="checkbox" checked onchange="toggleLayer('districts', this.checked)"> Woredas &amp; Districts (<span class="n-districts">…</span>)</label>
+            <label><input type="checkbox" checked onchange="toggleLayer('districts', this.checked)"> Woredas (districts) · <span class="n-districts">…</span></label>
             <label class="disabled" title="No data file connected yet"><input type="checkbox" disabled> Sub-basins</label>
             <label class="disabled" title="No data file connected yet"><input type="checkbox" disabled> Rivers &amp; streams</label>
             <label class="disabled" title="No data file connected yet"><input type="checkbox" disabled> Rainfall stations</label>
           </div>
+          <p class="note">Click any woreda for a flood brief.</p>
         </div>
 
         <div id="woreda-brief-card" class="card" style="display:none;">
@@ -196,34 +223,49 @@
       <!-- TAB 2: RAINFALL HAZARD -->
       <div id="tab-rainfall" class="tab-content">
         <div class="card">
-          <h3>Return period &amp; planning horizon</h3>
-          <div class="slider-container">
-            <label for="returnPeriod">Return period:</label>
-            <select id="returnPeriod" class="search-input" style="margin:0;width:auto;" onchange="setReturnPeriod(this.value)">
-              <option value="10">10-year</option>
-              <option value="25" selected>25-year</option>
-              <option value="50">50-year</option>
-            </select>
-          </div>
-          <div class="slider-container">
-            <label for="horizonSlider">Planning horizon:</label>
+          <h3>Return period</h3>
+          <select id="returnPeriod" class="search-input" onchange="setReturnPeriod(this.value)" aria-label="Return period">
+            <option value="10">10-year</option>
+            <option value="25" selected>25-year</option>
+            <option value="50">50-year</option>
+          </select>
+          <div class="slider-container" style="margin-top:6px;">
+            <label for="horizonSlider" id="horizonLabel">Planning horizon · 3 years</label>
             <input type="range" id="horizonSlider" min="1" max="50" value="3" oninput="updateHorizon(this.value)">
-            <span id="horizonVal">3 years</span>
           </div>
-          <div style="margin-top:10px; font-size:1.4rem; font-weight:800; color:#0284c7;" id="horizonRisk">12%</div>
+          <h3 id="horizonHead" style="margin-top:10px;">Chance in next 3 years</h3>
+          <div style="font-size:1.4rem; font-weight:800; color:#0284c7;" id="horizonRisk">12%</div>
           <div style="font-size:0.75rem; color:#64748b;" id="horizonText"></div>
         </div>
 
         <div class="card">
-          <h3>Highest districts · selected indicator</h3>
-          <div id="ranking"></div>
+          <h3 id="legend-title">Map colours</h3>
+          <div class="sus-bar" id="legend-bar"></div>
+          <div class="note" id="legend-range"></div>
+        </div>
+
+        <div class="card">
+          <h3>Estimate method</h3>
+          <p style="font-size:0.78rem; line-height:1.4;">Fitted to each station separately. Shows station-specific detail with wider confidence intervals on short records.</p>
+        </div>
+
+        <div class="card">
+          <h3 id="expected-title">Expected daily rainfall</h3>
+          <div id="expected-list"></div>
+          <button class="linkbtn" id="expected-toggle" onclick="toggleExpected()"></button>
+        </div>
+
+        <div class="card">
+          <h3>District guidance</h3>
+          <div id="guidance"></div>
         </div>
 
         <div class="card">
           <h3 id="forecast-title">Next 7 days · model forecast</h3>
           <div id="forecast-container">Loading model forecast...</div>
-          <p class="note">Data: Open-Meteo.com global weather-model grid forecast (CC BY 4.0). Click a district to update the location.</p>
+          <p class="note">Global weather-model forecast for the ~10–25 km grid cell around the district centre: not a station measurement and not an official warning. Follow the Ethiopian Meteorological Institute (EMI) and local authorities. Data: Open-Meteo.com (CC BY 4.0). Click a district to update the location.</p>
         </div>
+        <p class="note" style="margin:-4px 2px 14px;">Rainfall hazard, not flood depth. Flooding also depends on drainage, soils and land use.</p>
       </div>
 
       <!-- TAB 3: ASK -->
@@ -243,14 +285,21 @@
         <div class="card">
           <h3>About this tool</h3>
           <p style="font-size:0.78rem; line-height:1.45;">
-            A planning tool summarising extreme-rainfall hazard for <span class="n-districts">…</span> woredas and districts in eastern Ethiopia.
+            An open planning tool for the flood-exposed cities of eastern Ethiopia. It combines machine-learning flood susceptibility mapping under current and projected climate with station-based extreme-rainfall statistics, so planners can see both where flooding is likely and how intense the driving rainfall is. It covers <span class="n-districts">…</span> woredas and districts.
           </p>
         </div>
         <div class="card">
-          <h3>Data</h3>
-          <p style="font-size:0.75rem; line-height:1.4; color:#475569;">
-            Boundaries: Woredas &amp; Districts.geojson (EPSG:4326).<br>
-            Rainfall: District_Rainfall_Hazard_Summary.csv — mean annual rainfall, annual maximum daily rainfall, 10/25/50-year return levels, heavy-rain days and dry spells per district.
+          <h3>Methods</h3>
+          <p style="font-size:0.75rem; line-height:1.45; color:#475569;">
+            <strong>Susceptibility:</strong> Sentinel-1 SAR and machine learning, projected under SSP2-4.5 and SSP5-8.5.<br><br>
+            <strong>Rainfall:</strong> Generalized Extreme Value distribution fitted by L-moments, cross-validated against peaks-over-threshold, with regional frequency analysis over a statistically homogeneous region (72 station-years).
+          </p>
+        </div>
+        <div class="card">
+          <h3>Data sources</h3>
+          <p style="font-size:0.75rem; line-height:1.45; color:#475569;">
+            Rainfall data: National Meteorology Institute of Ethiopia.<br>
+            Administrative boundaries: FEWS NET.
           </p>
         </div>
         <div class="card">
