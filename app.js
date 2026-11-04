@@ -1,21 +1,36 @@
 // ============================================================
 // Eastern Ethiopia Flood Hazard Explorer
-// Boundaries : Woredas & Districts.geojson  (replaces Ethiopia_GAUL_Level2.geojson)
+// Boundaries : Woredas & Districts.geojson
+// Sub-basins : Sub-basin.geojson
+// Rivers     : Rivers & streams.geojson
+// Stations   : Rainfall_Stations.csv
 // Rainfall   : District_Rainfall_Hazard_Summary.csv
-// NOTE: fetch() needs a web server (e.g. `python -m http.server`), not file://
 // ============================================================
 const CONFIG = {
-  // Tried in order. The 2nd name is a safe fallback if your host dislikes spaces / "&".
   geojsonCandidates: ['Woredas & Districts.geojson', 'Woredas_Districts.geojson'],
+  subbasinCandidates: ['Sub-basin.geojson', 'Subbasin.geojson', 'Sub_basin.geojson'],
+  riverCandidates: ['Rivers & streams.geojson', 'Rivers_and_streams.geojson', 'Rivers.geojson', 'Streams.geojson'],
   csv: 'District_Rainfall_Hazard_Summary.csv',
-  // Optional: exact GeoJSON property holding the district name (e.g. 'ADMIN3'). null = auto-detect.
+  stationsCsv: 'Rainfall_Stations.csv',
   nameField: null,
-  scaleKm: 10,          // preferred scale-bar length (km)
-  initialZoom: 10,      // zoom 10 = 10 km scale bar fits inside its box; set null to fit all districts on load
-  fillOpacity: 0.7      // district fill opacity
+  scaleKm: 10,
+  initialZoom: 10,
+  fillOpacity: 0.7
 };
 
-// Indicators shown on the map. Columns missing from the CSV are skipped automatically.
+// Fallback rainfall stations data with exact coordinates provided
+const FALLBACK_STATIONS = [
+  { Station: 'Adama / Nazaret', Longitude: 39.27948818, Latitude: 8.490354042 },
+  { Station: 'Debre Zeit / Bishoftu', Longitude: 38.95887738, Latitude: 8.756130112 },
+  { Station: 'Ziway / Batu', Longitude: 38.69922529, Latitude: 7.923557203 },
+  { Station: 'Metehara', Longitude: 39.92111134, Latitude: 8.897808055 },
+  { Station: 'Gewane', Longitude: 40.62984775, Latitude: 10.16584581 },
+  { Station: 'Awash Arba', Longitude: 40.15889, Latitude: 9.141111 },
+  { Station: 'Awash 7', Longitude: 40.15, Latitude: 8.983333 },
+  { Station: 'Melkasa', Longitude: 39.328718, Latitude: 8.415525 },
+  { Station: 'Mojo', Longitude: 39.1233981, Latitude: 8.588469233 }
+];
+
 const INDICATORS = {
   Return_Level_10yr_mm:      { label: '10-yr return level',         unit: 'mm/day',  dec: 1 },
   Return_Level_25yr_mm:      { label: '25-yr return level',         unit: 'mm/day',  dec: 1 },
@@ -27,29 +42,32 @@ const INDICATORS = {
   Heavy_Days_50mm_yr:        { label: 'Days ≥ 50 mm per year',      unit: 'days/yr', dec: 2 },
   Mean_Consecutive_Dry_Days: { label: 'Mean consecutive dry days',  unit: 'days',    dec: 1 }
 };
-// Low -> high colours (same palette as the susceptibility legend)
+
 const COLORS = ['#2b83ba', '#abdda4', '#ffffbf', '#fdae61', '#d7191c'];
 const CLASS_NAMES = ['Very low', 'Low', 'Moderate', 'High', 'Very high'];
 const NO_DATA_COLOR = '#cbd5e1';
 
 const state = {
   indicator: 'Return_Level_25yr_mm',
-  T: 25,            // return period used for the planning-horizon calculator
+  T: 25,
   years: 3,
   selected: null,
   rasterOn: true,
   scenario: 'baseline',
   period: '2041–2060',
-  compare: false,       // swipe comparison against the current (baseline) layer
+  compare: false,
   swipe: 0.5,
-  showAll: false        // "Expected daily rainfall" list: top 5 or all districts
+  showAll: false
 };
-const data = {};            // normalised district name -> CSV record
-const layersByKey = {};     // normalised district name -> Leaflet layer
-let indicators = {};        // INDICATORS that actually exist in the CSV
-let geoLayer = null;
 
-// ---------- helpers ----------
+const data = {};
+const layersByKey = {};
+let indicators = {};
+let geoLayer = null;
+let subbasinLayer = null;
+let riverLayer = null;
+let stationLayer = null;
+
 const $ = id => document.getElementById(id);
 const norm = s => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -64,8 +82,6 @@ function hideStatus() { $('data-status').style.display = 'none'; }
 
 // ---------- map ----------
 const map = L.map('map', { maxZoom: 16 }).setView([8.9, 40.2], CONFIG.initialZoom || 8);
-// Scale bar: label inside a box, line underneath. It shows CONFIG.scaleKm (10 km) whenever that fits
-// (56-240 px wide); only if you zoom far out/in does it switch to the nearest round length so the text always fits.
 const SCALE_STEPS_KM = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
 const FixedScale = L.Control.extend({
   options: { position: 'bottomleft' },
@@ -89,22 +105,20 @@ const FixedScale = L.Control.extend({
   }
 });
 new FixedScale().addTo(map);
+
 L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}', {
   attribution: 'Tiles &copy; Esri', maxZoom: 16, zIndex: 1
 }).addTo(map);
 
 // ---------- Climate-scenario raster layers ----------
-// PLACEHOLDER: these three Esri basemaps only stand in for real susceptibility rasters.
-// To use real tiles, edit rasterUrl(): it receives the scenario ('baseline' | 'ssp245' | 'ssp585')
-// and the time period (one of PERIODS) and must return an XYZ tile URL template.
 const PERIODS = ['2021–2040', '2041–2060', '2081–2100'];
 const PLACEHOLDER_TILES = {
   baseline: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
   ssp245:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
   ssp585:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
 };
-function rasterUrl(scenario, period) {      // eslint-disable-line no-unused-vars
-  return PLACEHOLDER_TILES[scenario];       // e.g. return `tiles/${scenario}_${period}/{z}/{x}/{y}.png`;
+function rasterUrl(scenario, period) {
+  return PLACEHOLDER_TILES[scenario];
 }
 
 const rasterCache = {};
@@ -118,14 +132,13 @@ let activeRaster = null;
 
 const isComparing = () => state.rasterOn && state.compare && state.scenario !== 'baseline';
 
-// Rebuilds which raster layers are on the map for the current scenario / period / compare / visibility.
 function applyRaster() {
   Object.values(rasterCache).forEach(l => map.removeLayer(l));
   activeRaster = getRaster(state.scenario, state.period);
   const op = parseFloat($('opacitySlider').value);
   Object.values(rasterCache).forEach(l => l.setOpacity(op));
   if (state.rasterOn) {
-    if (isComparing()) getRaster('baseline').addTo(map);   // current layer underneath
+    if (isComparing()) getRaster('baseline').addTo(map);
     activeRaster.addTo(map);
   }
   const baseline = state.scenario === 'baseline';
@@ -135,7 +148,6 @@ function applyRaster() {
   updateCompare();
 }
 
-// Swipe: the scenario layer is clipped so the current layer shows on its left side.
 function updateCompare() {
   Object.values(rasterCache).forEach(l => { const c = l.getContainer && l.getContainer(); if (c) c.style.clip = ''; });
   const on = isComparing();
@@ -144,7 +156,7 @@ function updateCompare() {
   const el = activeRaster.getContainer && activeRaster.getContainer();
   if (!el) return;
   const size = map.getSize(), nw = map.containerPointToLayerPoint([0, 0]), se = map.containerPointToLayerPoint(size);
-  const x = nw.x + 14 + (size.x - 28) * state.swipe;       // 14 px = half the slider thumb
+  const x = nw.x + 14 + (size.x - 28) * state.swipe;
   el.style.clip = `rect(${nw.y}px, ${se.x}px, ${se.y}px, ${x}px)`;
 }
 map.on('move zoom resize', updateCompare);
@@ -162,12 +174,12 @@ function setSwipe(v) {
   updateCompare();
 }
 
-function updateOpacity(val) {               // raster transparency
+function updateOpacity(val) {
   $('opacityVal').textContent = `${Math.round(val * 100)}%`;
   Object.values(rasterCache).forEach(l => l.setOpacity(parseFloat(val)));
 }
 
-// ---------- CSV ----------
+// ---------- CSV Parsing ----------
 function splitLine(line, delim) {
   const out = []; let cur = '', quoted = false;
   for (let i = 0; i < line.length; i++) {
@@ -185,7 +197,7 @@ function splitLine(line, delim) {
 
 function parseCSV(text) {
   const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) throw new Error(`${CONFIG.csv} has no data rows`);
+  if (lines.length < 2) throw new Error('CSV has no data rows');
   const h = lines[0];
   const delim = h.includes('\t') ? '\t' : (h.split(';').length > h.split(',').length ? ';' : ',');
   const head = splitLine(h, delim);
@@ -216,7 +228,7 @@ async function loadTable() {
 
 const districtCount = () => Object.keys(data).length;
 
-// ---------- classification ----------
+// ---------- Classification ----------
 const brkCache = {};
 function breaks() {
   const k = state.indicator;
@@ -230,7 +242,7 @@ function breaks() {
   }
   return brkCache[k];
 }
-function classOf(v) {                       // -1 = no data
+function classOf(v) {
   const { min, step, ok } = breaks();
   if (!ok || !Number.isFinite(v)) return -1;
   if (step === 0) return 2;
@@ -248,11 +260,10 @@ function styleFor(key) {
   };
 }
 
-// ---------- GeoJSON ----------
-// Fetches the first candidate file that is real GeoJSON (a host may return index.html with HTTP 200 for missing files).
-async function fetchGeoJSON() {
-  let lastErr = new Error('No GeoJSON file name configured');
-  for (const name of CONFIG.geojsonCandidates) {
+// ---------- GeoJSON Loaders ----------
+async function fetchGeoJSON(candidates) {
+  let lastErr = new Error('No GeoJSON candidates configured');
+  for (const name of candidates) {
     try {
       const res = await fetch(encodeURIComponent(name));
       if (!res.ok) { lastErr = new Error(`${name}: HTTP ${res.status}`); continue; }
@@ -264,7 +275,6 @@ async function fetchGeoJSON() {
   throw lastErr;
 }
 
-// Finds which property holds the district name by counting matches against the CSV
 function detectNameField(features) {
   if (CONFIG.nameField) return CONFIG.nameField;
   const score = {};
@@ -274,17 +284,16 @@ function detectNameField(features) {
   const best = Object.entries(score).sort((a, b) => b[1] - a[1])[0];
   if (!best) {
     const fields = Object.keys((features[0] && features[0].properties) || {}).join(', ') || 'none';
-    throw new Error(`No GeoJSON property matches the CSV "District" names. Properties found: ${fields}`);
+    throw new Error(`No GeoJSON property matches CSV district names. Properties found: ${fields}`);
   }
   return best[0];
 }
 
 async function loadBoundaries() {
-  const gj = await fetchGeoJSON();
+  const gj = await fetchGeoJSON(CONFIG.geojsonCandidates);
   const feats = gj.features.filter(f => f.geometry);
   if (!feats.length) throw new Error('GeoJSON has no features with geometry');
   const field = detectNameField(feats);
-  console.log('District name field detected:', field);
 
   const seen = new Set(), unmatched = [];
   const layer = L.geoJSON({ type: 'FeatureCollection', features: feats }, {
@@ -303,11 +312,7 @@ async function loadBoundaries() {
     }
   });
 
-  // Sanity check: Leaflet needs WGS84 lon/lat (EPSG:4326)
   const b = layer.getBounds();
-  if (!b.isValid() || Math.abs(b.getWest()) > 180 || Math.abs(b.getEast()) > 180 || Math.abs(b.getNorth()) > 90 || Math.abs(b.getSouth()) > 90)
-    throw new Error('GeoJSON coordinates are not longitude/latitude. Re-export it in EPSG:4326 (WGS 84).');
-
   geoLayer = layer.addTo(map);
   if (CONFIG.initialZoom) map.setView(b.getCenter(), CONFIG.initialZoom);
   else map.fitBounds(b, { padding: [20, 20] });
@@ -316,15 +321,90 @@ async function loadBoundaries() {
   const missing = Object.values(data).filter(r => !seen.has(norm(r.District))).map(r => r.District);
   const total = districtCount();
   if (unmatched.length || missing.length) {
-    showStatus(`⚠ Matched ${seen.size}/${total} districts.` +
+    showStatus(`Matched ${seen.size}/${total} districts.` +
       (unmatched.length ? `<br>On map, not in CSV: ${unmatched.map(esc).join(', ')}` : '') +
       (missing.length ? `<br>In CSV, not on map: ${missing.map(esc).join(', ')}` : ''));
   } else hideStatus();
 }
 
-// ---------- indicator / legend / ranking ----------
+async function loadSubbasins() {
+  try {
+    const gj = await fetchGeoJSON(CONFIG.subbasinCandidates);
+    subbasinLayer = L.geoJSON(gj, {
+      style: {
+        color: '#1e3a8a',
+        weight: 2,
+        fillColor: '#3b82f6',
+        fillOpacity: 0.1,
+        dashArray: '4, 4'
+      },
+      onEachFeature: (f, lyr) => {
+        const name = f.properties.Name || f.properties.SUBBASIN || f.properties.name || 'Sub-basin';
+        lyr.bindTooltip(esc(name), { sticky: true });
+      }
+    }).addTo(map);
+  } catch (e) {
+    console.log('Sub-basin file not found or failed to load:', e.message);
+  }
+}
+
+async function loadRivers() {
+  try {
+    const gj = await fetchGeoJSON(CONFIG.riverCandidates);
+    riverLayer = L.geoJSON(gj, {
+      style: {
+        color: '#0284c7',
+        weight: 1.5,
+        opacity: 0.8
+      },
+      onEachFeature: (f, lyr) => {
+        const name = f.properties.Name || f.properties.RIVER || f.properties.name || 'River / Stream';
+        lyr.bindTooltip(esc(name), { sticky: true });
+      }
+    }).addTo(map);
+  } catch (e) {
+    console.log('Rivers file not found or failed to load:', e.message);
+  }
+}
+
+async function loadStations() {
+  let stations = FALLBACK_STATIONS;
+  try {
+    const res = await fetch(encodeURIComponent(CONFIG.stationsCsv));
+    if (res.ok) {
+      const text = await res.text();
+      const rows = parseCSV(text);
+      if (rows.length > 0 && rows[0].Station && rows[0].Longitude && rows[0].Latitude) {
+        stations = rows.map(r => ({
+          Station: r.Station,
+          Longitude: parseFloat(r.Longitude),
+          Latitude: parseFloat(r.Latitude)
+        })).filter(s => Number.isFinite(s.Longitude) && Number.isFinite(s.Latitude));
+      }
+    }
+  } catch (e) {
+    console.log('Rainfall stations CSV fetch failed, using fallback stations.');
+  }
+
+  const markers = stations.map(s => {
+    const marker = L.circleMarker([s.Latitude, s.Longitude], {
+      radius: 6,
+      color: '#ffffff',
+      weight: 2,
+      fillColor: '#dc2626',
+      fillOpacity: 0.9
+    });
+    marker.bindPopup(`<b>Station:</b> ${esc(s.Station)}<br><b>Latitude:</b> ${s.Latitude.toFixed(4)}<br><b>Longitude:</b> ${s.Longitude.toFixed(4)}`);
+    marker.bindTooltip(esc(s.Station), { sticky: true });
+    return marker;
+  });
+
+  stationLayer = L.layerGroup(markers).addTo(map);
+}
+
+// ---------- Indicators & Legend ----------
 function buildIndicatorMenu() {
-  const rp = $('returnPeriod');                         // only offer return periods present in the CSV
+  const rp = $('returnPeriod');
   [...rp.options].forEach(o => { o.disabled = !indicators[`Return_Level_${o.value}yr_mm`]; });
   if (indicators[`Return_Level_${state.T}yr_mm`]) rp.value = String(state.T);
 }
@@ -361,7 +441,6 @@ function renderLegend() {
   $('legend-range').textContent = `Equal-interval classes: ${fmt(min, ind.dec)} – ${fmt(min + 5 * step, ind.dec)} ${ind.unit}`;
 }
 
-// "Expected daily rainfall": districts ranked by the selected return-period depth
 function renderExpected() {
   const rl = `Return_Level_${state.T}yr_mm`;
   $('expected-title').textContent = `Expected daily rainfall · ${state.T}-year return level`;
@@ -378,7 +457,6 @@ function renderExpected() {
 }
 function toggleExpected() { state.showAll = !state.showAll; renderExpected(); }
 
-// "Station guidance" + "Design & monitoring guidance" for the selected district
 function renderGuidance() {
   const box = $('guidance'), r = data[state.selected];
   if (!r) { box.innerHTML = '<p class="note">Click a district on the map, or pick one in the list above, to see its guidance.</p>'; return; }
@@ -392,11 +470,10 @@ function renderGuidance() {
     `<ul class="action-list">` +
     (Number.isFinite(rl) ? `<li>Use <strong>${fmt(rl, 0)} mm/day</strong> as the ${state.T}-year urban drainage design depth.</li>` : '') +
     `<li>Flash floods in ephemeral streams are driven by sub-daily intensity, not daily depth. Install automatic telemetered gauges upstream for lead time.</li>` +
-    `<li>Set a local warning trigger well below the design value; 30 mm/day (the flood threshold used here) can already generate damaging runoff.</li>` +
+    `<li>Set a local warning trigger well below the design value; 30 mm/day can generate damaging runoff.</li>` +
     `</ul>`;
 }
 
-// ---------- district selection ----------
 function selectDistrict(key) {
   if (!data[key]) return;
   const prev = state.selected;
@@ -431,35 +508,39 @@ function renderBrief(key) {
 
 let searchTimer = null;
 function filterWoreda(query) {
-  clearTimeout(searchTimer);                         // debounce: one map move per pause, not per keystroke
+  clearTimeout(searchTimer);
   searchTimer = setTimeout(() => {
     const q = norm(query);
     if (q.length < 2) return;
     const rows = Object.entries(data);
     const hit = rows.find(([k]) => k === q) || rows.find(([k]) => k.includes(q));
     if (hit) return selectDistrict(hit[0]);
-    // otherwise try a zone / region name and zoom to that group
     const group = rows.filter(([, r]) => norm(r.Zone_ADMIN2).includes(q) || norm(r.Region_ADMIN1).includes(q))
       .map(([k]) => layersByKey[k]).filter(Boolean);
     if (group.length) map.fitBounds(L.featureGroup(group).getBounds(), { padding: [20, 20] });
   }, 250);
 }
 
-// ---------- UI handlers ----------
 function switchTab(tabId) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
   document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `tab-${tabId}`));
 }
 
 function toggleLayer(name, on) {
-  if (name === 'districts' && geoLayer) on ? map.addLayer(geoLayer) : map.removeLayer(geoLayer);
-  else if (name === 'susceptibility') {
+  if (name === 'districts' && geoLayer) {
+    on ? map.addLayer(geoLayer) : map.removeLayer(geoLayer);
+  } else if (name === 'subbasins' && subbasinLayer) {
+    on ? map.addLayer(subbasinLayer) : map.removeLayer(subbasinLayer);
+  } else if (name === 'rivers' && riverLayer) {
+    on ? map.addLayer(riverLayer) : map.removeLayer(riverLayer);
+  } else if (name === 'stations' && stationLayer) {
+    on ? map.addLayer(stationLayer) : map.removeLayer(stationLayer);
+  } else if (name === 'susceptibility') {
     state.rasterOn = on;
     applyRaster();
   }
 }
 
-// Probability of at least one T-year event in n years: 1 - (1 - 1/T)^n
 function updateHorizon(years) {
   state.years = +years;
   const risk = (1 - Math.pow(1 - 1 / state.T, years)) * 100;
@@ -477,16 +558,16 @@ async function shareLink(btn) {
     const old = btn.textContent; btn.textContent = 'Link copied';
     setTimeout(() => { btn.textContent = old; }, 1500);
   } catch (e) {
-    if (e && e.name === 'AbortError') return;        // user closed the share sheet
+    if (e && e.name === 'AbortError') return;
     window.prompt('Copy this link:', url);
   }
 }
 
-// ---------- Open-Meteo 7-day forecast (for the selected district centre) ----------
+// ---------- Open-Meteo 7-day forecast ----------
 const FLOOD_THRESHOLD_MM = 30;
 let forecastToken = 0;
 async function loadForecast(latlng, name) {
-  const token = ++forecastToken;                     // ignore stale responses if the user clicks quickly
+  const token = ++forecastToken;
   const c = $('forecast-container');
   $('forecast-title').textContent = `Next 7 days · model forecast · ${name}`;
   c.textContent = 'Loading model forecast...';
@@ -522,18 +603,17 @@ async function loadForecast(latlng, name) {
   }
 }
 
-// ---------- Rule-based assistant (answers only from the CSV) ----------
+// ---------- Assistant ----------
 function answer(text) {
   const q = text.toLowerCase(), nq = norm(q);
   const rows = Object.values(data);
   if (!rows.length) return 'The district table is not loaded yet.';
-  // longest matching name wins, so "Adama town" is not read as "Adama"
   const hit = rows.filter(r => nq.includes(norm(r.District))).sort((a, b) => norm(b.District).length - norm(a.District).length)[0];
   const T = (q.match(/\b(10|25|50)[\s-]*(yr|year)/) || [])[1] || state.T;
   const rl = `Return_Level_${T}yr_mm`;
   const hasRL = rows.some(r => Number.isFinite(r[rl]));
   if (/\b(tomorrow|next week|this week|forecast)\b/.test(q) || /\bwill\b.*\bflood/.test(q) || /flood.*\b20\d\d\b/.test(q))
-    return 'This dashboard gives long-term planning statistics, not operational forecasts. Use the 7-day model forecast on the Rainfall hazard tab and official NMA/EDRMC warnings.';
+    return 'This dashboard gives long-term planning statistics, not operational forecasts. Use the 7-day model forecast on the Rainfall hazard tab and official warnings.';
   if (hasRL && /(highest|most|worst|top)/.test(q)) {
     const t = [...rows].sort((a, b) => b[rl] - a[rl]).slice(0, 3);
     return `Highest ${T}-year daily rainfall: ${t.map(r => `${r.District} (${fmt(r[rl], 1)} mm)`).join(', ')}.`;
@@ -559,7 +639,7 @@ function sendQuery() {
   win.scrollTop = win.scrollHeight;
 }
 
-// ---------- init ----------
+// ---------- Init ----------
 (async function init() {
   applyRaster();
   setSwipe(state.swipe);
@@ -574,14 +654,20 @@ function sendQuery() {
     renderLegend(); renderExpected(); renderGuidance(); updateHorizon(state.years);
   } catch (err) {
     console.error(err);
-    showStatus(`⚠ Could not load rainfall table: ${esc(err.message)}.<br>Open the page through a web server and check file names in CONFIG (top of app.js).`);
+    showStatus(`Could not load rainfall table: ${esc(err.message)}. Open the page through a web server and check file names in CONFIG (top of app.js).`);
   }
   if (tableOk) {
     try { await loadBoundaries(); }
     catch (err) {
       console.error(err);
-      showStatus(`⚠ Could not load district boundaries: ${esc(err.message)}`);
+      showStatus(`Could not load district boundaries: ${esc(err.message)}`);
     }
   }
+
+  // Load sub-basins, rivers & streams, and rainfall stations
+  loadSubbasins();
+  loadRivers();
+  loadStations();
+
   loadForecast(map.getCenter(), 'study area centre');
 })();
