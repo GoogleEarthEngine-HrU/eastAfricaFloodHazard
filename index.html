@@ -100,10 +100,8 @@
     #swipe input::-moz-range-thumb { pointer-events: auto; width: 22px; height: 22px; border-radius: 50%; background: #0284c7; border: 3px solid #fff; cursor: ew-resize; }
     .swipe-tag { position: absolute; top: 10px; font-size: 0.7rem; font-weight: 700; background: rgba(11,25,44,.8); color: #fff; padding: 3px 8px; border-radius: 4px; }
 
-    /* Fixed 10 km scale bar */
-    .scale-fixed { background: rgba(255,255,255,.8); padding: 2px 6px 3px; border-radius: 3px; margin: 0 0 8px 10px; font-size: 11px; color: #333; line-height: 1.2; }
-    .scale-fixed-bar { height: 6px; border: 2px solid #333; border-top: none; margin-bottom: 1px; box-sizing: border-box; }
-    .scale-fixed-label { font-weight: 600; }
+    /* Scale bar: "10 km" label inside the box, line (left/right/bottom border) underneath */
+    .scale-fixed { box-sizing: border-box; border: 2px solid #777; border-top: none; background: rgba(255,255,255,.7); padding: 1px 5px 0; margin: 0 0 10px 10px; font-size: 11px; font-weight: 600; line-height: 1.2; color: #333; white-space: nowrap; overflow: hidden; }
 
     @media (max-width: 800px) {
       #dashboard { flex-direction: column; }

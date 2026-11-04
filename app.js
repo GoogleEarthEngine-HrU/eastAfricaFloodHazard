@@ -10,7 +10,8 @@ const CONFIG = {
   csv: 'District_Rainfall_Hazard_Summary.csv',
   // Optional: exact GeoJSON property holding the district name (e.g. 'ADMIN3'). null = auto-detect.
   nameField: null,
-  scaleKm: 10,          // length of the fixed scale bar (km)
+  scaleKm: 10,          // preferred scale-bar length (km)
+  initialZoom: 10,      // zoom 10 = 10 km scale bar fits inside its box; set null to fit all districts on load
   fillOpacity: 0.7      // district fill opacity
 };
 
@@ -62,23 +63,29 @@ function showStatus(html) {
 function hideStatus() { $('data-status').style.display = 'none'; }
 
 // ---------- map ----------
-const map = L.map('map', { maxZoom: 16 }).setView([8.9, 40.2], 8);
-// Fixed-length scale bar: always labelled CONFIG.scaleKm (10 km); its pixel width follows the zoom level.
+const map = L.map('map', { maxZoom: 16 }).setView([8.9, 40.2], CONFIG.initialZoom || 8);
+// Scale bar: label inside a box, line underneath. It shows CONFIG.scaleKm (10 km) whenever that fits
+// (56-240 px wide); only if you zoom far out/in does it switch to the nearest round length so the text always fits.
+const SCALE_STEPS_KM = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
 const FixedScale = L.Control.extend({
   options: { position: 'bottomleft' },
   onAdd(m) {
-    const box = L.DomUtil.create('div', 'scale-fixed');
-    this._bar = L.DomUtil.create('div', 'scale-fixed-bar', box);
-    L.DomUtil.create('span', 'scale-fixed-label', box).textContent = `${CONFIG.scaleKm} km`;
+    this._box = L.DomUtil.create('div', 'scale-fixed');
     m.on('zoomend moveend', this._update, this);
     this._update();
-    return box;
+    return this._box;
   },
   onRemove(m) { m.off('zoomend moveend', this._update, this); },
   _update() {
     const m = this._map, y = m.getSize().y / 2;
     const metresPerPx = m.distance(m.containerPointToLatLng([0, y]), m.containerPointToLatLng([100, y])) / 100;
-    this._bar.style.width = `${Math.max(2, Math.round(CONFIG.scaleKm * 1000 / metresPerPx))}px`;
+    const px = km => km * 1000 / metresPerPx;
+    let i = Math.max(0, SCALE_STEPS_KM.indexOf(CONFIG.scaleKm));
+    while (px(SCALE_STEPS_KM[i]) < 56 && i < SCALE_STEPS_KM.length - 1) i++;
+    while (px(SCALE_STEPS_KM[i]) > 240 && i > 0) i--;
+    const km = SCALE_STEPS_KM[i];
+    this._box.textContent = km < 1 ? `${Math.round(km * 1000)} m` : `${km} km`;
+    this._box.style.width = `${Math.round(px(km))}px`;
   }
 });
 new FixedScale().addTo(map);
@@ -302,7 +309,8 @@ async function loadBoundaries() {
     throw new Error('GeoJSON coordinates are not longitude/latitude. Re-export it in EPSG:4326 (WGS 84).');
 
   geoLayer = layer.addTo(map);
-  map.fitBounds(b, { padding: [20, 20] });
+  if (CONFIG.initialZoom) map.setView(b.getCenter(), CONFIG.initialZoom);
+  else map.fitBounds(b, { padding: [20, 20] });
   if (state.selected && layersByKey[state.selected]) layersByKey[state.selected].setStyle(styleFor(state.selected));
 
   const missing = Object.values(data).filter(r => !seen.has(norm(r.District))).map(r => r.District);
@@ -397,7 +405,8 @@ function selectDistrict(key) {
   const layer = layersByKey[key];
   if (layer) {
     layer.setStyle(styleFor(key));
-    map.fitBounds(layer.getBounds(), { maxZoom: 10 });
+    if (CONFIG.initialZoom) map.setView(layer.getBounds().getCenter(), CONFIG.initialZoom);
+    else map.fitBounds(layer.getBounds(), { maxZoom: 10 });
   }
   renderBrief(key);
   renderExpected();
