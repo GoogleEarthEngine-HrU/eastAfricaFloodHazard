@@ -18,17 +18,14 @@ const CONFIG = {
   fillOpacity: 0.7
 };
 
-// Fallback rainfall stations data with exact coordinates provided
+// Fallback rainfall stations data updated with the new station coordinates provided
 const FALLBACK_STATIONS = [
-  { Station: 'Adama / Nazaret', Longitude: 39.27948818, Latitude: 8.490354042 },
-  { Station: 'Debre Zeit / Bishoftu', Longitude: 38.95887738, Latitude: 8.756130112 },
-  { Station: 'Ziway / Batu', Longitude: 38.69922529, Latitude: 7.923557203 },
-  { Station: 'Metehara', Longitude: 39.92111134, Latitude: 8.897808055 },
-  { Station: 'Gewane', Longitude: 40.62984775, Latitude: 10.16584581 },
-  { Station: 'Awash Arba', Longitude: 40.15889, Latitude: 9.141111 },
-  { Station: 'Awash 7', Longitude: 40.15, Latitude: 8.983333 },
-  { Station: 'Melkasa', Longitude: 39.328718, Latitude: 8.415525 },
-  { Station: 'Mojo', Longitude: 39.1233981, Latitude: 8.588469233 }
+  { Station: 'Adama / Nazaret', Longitude: 39.279498, Latitude: 8.490354 },
+  { Station: 'Fentale', Longitude: 39.85345, Latitude: 8.813143 },
+  { Station: 'Bishoftu town', Longitude: 38.96573, Latitude: 8.758421 },
+  { Station: 'Bora (OR)', Longitude: 38.94344, Latitude: 8.288216 },
+  { Station: 'Liban Chukala', Longitude: 38.860342, Latitude: 8.511158 },
+  { Station: 'Gimbichu', Longitude: 39.168407, Latitude: 9.015818 }
 ];
 
 const INDICATORS = {
@@ -383,7 +380,7 @@ async function loadStations() {
       }
     }
   } catch (e) {
-    console.log('Rainfall stations CSV fetch failed, using fallback stations.');
+    console.log('Rainfall stations CSV fetch failed, using updated fallback stations.');
   }
 
   const markers = stations.map(s => {
