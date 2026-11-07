@@ -107,22 +107,28 @@ L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_L
   attribution: 'Tiles &copy; Esri', maxZoom: 16, zIndex: 1
 }).addTo(map);
 
-// ---------- Climate-scenario raster layers ----------
-const PERIODS = ['2021–2040', '2041–2060', '2081–2100'];
-const PLACEHOLDER_TILES = {
-  baseline: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
-  ssp245:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-  ssp585:   'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}'
+// ---------- Climate-scenario raster tile configuration ----------
+const RASTER_TILE_URLS = {
+  baseline:         'tiles/current/{z}/{x}/{y}.png',
+  'ssp245|2021–2040': 'tiles/ssp245_2021_2040/{z}/{x}/{y}.png',
+  'ssp245|2041–2060': 'tiles/ssp245_2041_2060/{z}/{x}/{y}.png',
+  'ssp245|2081–2100': 'tiles/ssp245_2081_2100/{z}/{x}/{y}.png',
+  'ssp585|2021–2040': 'tiles/ssp585_2021_2040/{z}/{x}/{y}.png',
+  'ssp585|2041–2060': 'tiles/ssp585_2041_2060/{z}/{x}/{y}.png',
+  'ssp585|2081–2100': 'tiles/ssp585_2081_2100/{z}/{x}/{y}.png'
 };
+
 function rasterUrl(scenario, period) {
-  return PLACEHOLDER_TILES[scenario];
+  if (scenario === 'baseline') return RASTER_TILE_URLS.baseline;
+  const key = `${scenario}|${period}`;
+  return RASTER_TILE_URLS[key] || RASTER_TILE_URLS.baseline;
 }
 
 const rasterCache = {};
 function getRaster(scenario, period) {
   const key = scenario === 'baseline' ? 'baseline' : `${scenario}|${period}`;
   return rasterCache[key] || (rasterCache[key] = L.tileLayer(rasterUrl(scenario, period), {
-    opacity: parseFloat($('opacitySlider').value), zIndex: scenario === 'baseline' ? 2 : 3, maxZoom: 16
+    opacity: parseFloat($('opacitySlider').value), zIndex: scenario === 'baseline' ? 2 : 3, maxZoom: 16, minZoom: 8
   }));
 }
 let activeRaster = null;
